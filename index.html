@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>COXX – Mise à jour des besoins hebdo à partir des ventes</title>
+  <style>
+    :root {
+      --bg-dark: #000;
+      --bg-panel: #111;
+      --border: #333;
+      --accent: #fff;
+      --muted: #aaa;
+      --danger: #ff5555;
+      --good: #4caf50;
+      --font-main: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1.5rem;
+      font-family: var(--font-main);
+      background: radial-gradient(circle at top, #222 0, #000 55%);
+      color: #eee;
+    }
+    h1, h2, h3 { margin: 0 0 .5rem 0; }
+    p { margin: .25rem 0 .5rem 0; }
+    code {
+      background: #222;
+      padding: 0 .25rem;
+      border-radius: 3px;
+      font-size: .9em;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .panel {
+      background: rgba(17,17,17,0.95);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      border: 1px solid #333;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.55);
+      margin-bottom: 1.2rem;
+    }
+    .panel h2 {
+      font-size: 1.1rem;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: .85rem;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      margin-top: .5rem;
+    }
+    label {
+      font-size: .9rem;
+      color: var(--muted);
+    }
+    input[type=file], input[type=number] {
+      font-size: .9rem;
+      color: #eee;
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: .25rem .7rem;
+    }
+    input[type=number] {
+      width: 5rem;
+    }
+    button {
+      border-radius: 999px;
+      border: 1px solid var(--accent);
+      background: #fff;
+      color: #000;
+      font-weight: 600;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      padding: .4rem .9rem;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: .4;
+      cursor: default;
+    }
+    #status {
+      font-size: .85rem;
+      margin-top: .4rem;
+    }
+    #status.good { color: var(--good); }
+    #status.bad { color: var(--danger); }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      background: #050505;
+      color: #eee;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: .5rem .6rem;
+      font-family: monospace;
+      font-size: .8rem;
+      resize: vertical;
+    }
+    ul {
+      margin: .25rem 0 .5rem 1.2rem;
+    }
+    li { font-size: .85rem; color: var(--muted); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      border-radius: 999px;
+      border: 1px solid #444;
+      padding: .1rem .6rem;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>COXX – Générateur d'outil HTML mis à jour</h1>
+    <p class="hint">
+      Cet utilitaire te permet de prendre ton <strong>outil HTML COXX existant</strong>,
+      d'appliquer un fichier de <strong>ventes mensuelles ou annuelles</strong>, et de produire un
+      <strong>nouveau fichier HTML</strong> avec les besoins hebdos mis à jour (dans <code>EMBEDDED_DATA.hebdo</code>).
+    </p>
+
+    <div class="panel">
+      <h2>1. Importer l'outil HTML de base</h2>
+      <p class="hint">
+        Choisis ton fichier HTML principal (celui qui contient déjà <code>const EMBEDDED_DATA = {...}</code> et tout l'outil).
+      </p>
+      <div class="row">
+        <div>
+          <label for="baseHtmlInput">Fichier HTML de base</label><br />
+          <input type="file" id="baseHtmlInput" accept=".html,.htm,text/html" />
+        </div>
+        <span class="badge" id="baseInfo">Aucun fichier chargé</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>2. Importer le fichier de ventes (mois, année…)</h2>
+      <p class="hint">
+        Fichier CSV exporté de ton outil de ventes. L'utilitaire accepte :
+      </p>
+      <ul>
+        <li><code>code_article</code> + <code>quantite</code> (ou <code>quantité</code>, <code>Qte</code>, <code>Qté</code>)</li>
+        <li>ou <code>Produit</code> / <code>Libellé</code> + <code>Quantité</code> (il fera la correspondance avec le libellé produit de l'outil).</li>
+      </ul>
+      <div class="row">
+        <div>
+          <label for="salesCsvInput">Fichier de ventes (CSV)</label><br />
+          <input type="file" id="salesCsvInput" accept=".csv,text/csv" />
+        </div>
+        <div>
+          <label for="periodWeeks">Durée couverte par le fichier (en semaines)</label><br />
+          <input type="number" id="periodWeeks" value="4" min="1" step="1" />
+        </div>
+      </div>
+      <p class="hint">
+        Exemple : 4 pour un mois, 52 pour une année complète. L'outil comparera la consommation observée sur cette période
+        à la consommation historique et recalculera un besoin hebdo.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>3. Générer le nouvel outil HTML</h2>
+      <p class="hint">
+        Cette étape va :
+      </p>
+      <ul>
+        <li>lire les besoins hebdo actuels depuis <code>EMBEDDED_DATA.hebdo</code> du fichier de base ;</li>
+        <li>calculer le facteur d'ajustement à partir du fichier de ventes (par article) ;</li>
+        <li>mettre à jour <code>hebdo</code> en conséquence (en restant borné : ×0,3 à ×3) ;</li>
+        <li>produire un <strong>nouveau fichier HTML</strong> que tu pourras utiliser directement comme outil complet.</li>
+      </ul>
+      <button id="generateBtn" disabled>Générer le nouvel outil HTML</button>
+      <div id="status"></div>
+      <p class="hint">En dessous, tu peux voir un petit résumé texte de ce qui a été fait :</p>
+      <textarea id="logArea" readonly></textarea>
+    </div>
+  </div>
+
+  <script>
+    let baseHtmlText = "";
+    let embeddedData = null;
+    let salesAgg = null;
+    let productsIndexByLabel = null;
+
+    const baseInfoEl = document.getElementById("baseInfo");
+    const statusEl = document.getElementById("status");
+    const logArea = document.getElementById("logArea");
+    const generateBtn = document.getElementById("generateBtn");
+
+    function setStatus(msg, good) {
+      statusEl.textContent = msg;
+      statusEl.className = "";
+      if (!msg) return;
+      statusEl.classList.add(good ? "good" : "bad");
+    }
+
+    function appendLog(line) {
+      logArea.value += line + "\n";
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    // --- Lecture du HTML de base et extraction d'EMBEDDED_DATA ---
+    document.getElementById("baseHtmlInput").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      embeddedData = null;
+      baseHtmlText = "";
+      productsIndexByLabel = null;
+      generateBtn.disabled = true;
+      if (!file) {
+        baseInfoEl.textContent = "Aucun fichier chargé";
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          baseHtmlText = String(ev.target.result);
+          const match = baseHtmlText.match(/const\s+EMBEDDED_DATA\s*=\s*(\{[\s\S]*?\});/);
+          if (!match) {
+            throw new Error("Impossible de trouver 'const EMBEDDED_DATA = {...};' dans le fichier HTML.");
+          }
+          const jsonText = match[1];
+          embeddedData = JSON.parse(jsonText);
+
+          if (!embeddedData.products || !embeddedData.hebdo) {
+            throw new Error("Le bloc EMBEDDED_DATA ne contient pas 'products' ou 'hebdo'.");
+          }
+
+          productsIndexByLabel = {};
+          embeddedData.products.forEach(p => {
+            const key = (p.libelle || "").trim().toLowerCase();
+            if (key) productsIndexByLabel[key] = p;
+          });
+
+          baseInfoEl.textContent = "HTML chargé : " + file.name + " (" + embeddedData.products.length + " produits)";
+          setStatus("HTML de base chargé. Tu peux maintenant charger le fichier de ventes.", true);
+          appendLog("[HTML] EMBEDDED_DATA chargé, " + embeddedData.products.length + " produits.");
+
+          if (salesAgg) {
+            generateBtn.disabled = false;
+          }
+        } catch (err) {
+          console.error(err);
+          embeddedData = null;
+          baseInfoEl.textContent = "Erreur de lecture";
+          setStatus(err.message || "Erreur en lisant le HTML de base.", false);
+          appendLog("[ERREUR HTML] " + (err.message || String(err)));
+        }
+      };
+      reader.onerror = () => {
+        embeddedData = null;
+        baseHtmlText = "";
+        baseInfoEl.textContent = "Erreur de lecture";
+        setStatus("Erreur de lecture du fichier HTML.", false);
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+
+    // --- Lecture du CSV de ventes ---
+    document.getElementById("salesCsvInput").addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      salesAgg = null;
+      generateBtn.disabled = true;
+      if (!file) {
+        appendLog("[VENTES] Aucun fichier sélectionné.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const txt = String(ev.target.result);
+          salesAgg = parseSalesCsvFlexible(txt);
+          const n = Object.keys(salesAgg).length;
+          appendLog("[VENTES] " + n + " article(s) trouvé(s) dans le fichier.");
+          if (!embeddedData) {
+            setStatus("Fichier de ventes chargé. Charge d'abord le HTML de base si ce n'est pas déjà fait.", true);
+          } else {
+            generateBtn.disabled = false;
+            setStatus("Fichier de ventes chargé. Tu peux générer le nouvel outil HTML.", true);
+          }
+        } catch (err) {
+          console.error(err);
+          salesAgg = null;
+          setStatus(err.message || "Erreur en lisant le CSV de ventes.", false);
+          appendLog("[ERREUR VENTES] " + (err.message || String(err)));
+        }
+      };
+      reader.onerror = () => {
+        salesAgg = null;
+        setStatus("Erreur de lecture du fichier de ventes.", false);
+        appendLog("[ERREUR VENTES] Erreur de lecture du fichier.");
+      };
+      reader.readAsText(file, "UTF-8");
+    });
+
+    function parseSalesCsvFlexible(text) {
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length < 2) throw new Error("Le fichier de ventes semble vide ou sans en-tête.");
+
+      const header = lines[0].split(/;|,/).map(h => h.trim().toLowerCase());
+
+      const idxCode = header.indexOf("code_article");
+      const qtyNames = ["quantite", "quantité", "qte", "qté", "quantité totale", "total"];
+      let idxQty = -1;
+      for (const n of qtyNames) {
+        const i = header.indexOf(n);
+        if (i !== -1) { idxQty = i; break; }
+      }
+
+      const nameCandidates = ["produit", "libelle", "libellé", "article"];
+      let idxName = -1;
+      for (const n of nameCandidates) {
+        const i = header.indexOf(n);
+        if (i !== -1) { idxName = i; break; }
+      }
+
+      if (idxQty === -1) {
+        throw new Error("Impossible de trouver une colonne de quantité (quantite / quantité / qte / qté / total).");
+      }
+      if (idxCode === -1 && idxName === -1) {
+        throw new Error("Impossible de trouver une colonne code_article ou Produit / Libellé.");
+      }
+
+      const agg = {}; // code_article -> total quantite
+
+      function mapProductNameToCode(name) {
+        if (!embeddedData || !embeddedData.products) return null;
+        const key = (name || "").trim().toLowerCase();
+        if (!key) return null;
+        const p = productsIndexByLabel && productsIndexByLabel[key];
+        return p ? p.code_article : null;
+      }
+
+      let mappedByCode = 0;
+      let mappedByName = 0;
+      let ignored = 0;
+
+      for (let i = 1; i < lines.length; i++) {
+        const raw = lines[i].trim();
+        if (!raw) continue;
+        const parts = raw.split(/;|,/);
+
+        let code = "";
+        if (idxCode !== -1) {
+          code = (parts[idxCode] || "").trim();
+        }
+        if (!code && idxName !== -1) {
+          const name = parts[idxName] || "";
+          const mapped = mapProductNameToCode(name);
+          if (mapped) {
+            code = mapped;
+            mappedByName++;
+          } else {
+            ignored++;
+            continue;
+          }
+        } else if (code) {
+          mappedByCode++;
+        }
+
+        const qtyStr = (parts[idxQty] || "").replace(",", ".").trim();
+        const qty = parseFloat(qtyStr);
+        if (!code || isNaN(qty) || qty <= 0) {
+          ignored++;
+          continue;
+        }
+        if (!agg[code]) agg[code] = 0;
+        agg[code] += qty;
+      }
+
+      appendLog("[VENTES] " + mappedByCode + " article(s) mappé(s) par code_article, " +
+                mappedByName + " par nom, " + ignored + " ligne(s) ignorée(s).");
+      return agg;
+    }
+
+    function computeAverageWeeklyHebdo(hebdoForCode) {
+      if (!hebdoForCode) return 0;
+      let sum = 0;
+      let count = 0;
+      for (const w in hebdoForCode) {
+        const v = hebdoForCode[w];
+        if (v != null && !isNaN(v)) {
+          sum += Number(v);
+          count++;
+        }
+      }
+      if (!count) return 0;
+      return sum / count;
+    }
+
+    function applySalesToHebdo() {
+      if (!embeddedData || !embeddedData.hebdo) {
+        throw new Error("Les données EMBEDDED_DATA.hebdo ne sont pas disponibles.");
+      }
+      const hebdo = embeddedData.hebdo;
+      const periodWeeksInput = document.getElementById("periodWeeks");
+      const periodWeeks = Math.max(1, Number(periodWeeksInput.value) || 4);
+
+      let updatedCount = 0;
+      let missingCodes = 0;
+
+      for (const code in salesAgg) {
+        const periodQty = salesAgg[code];
+        const weeksData = hebdo[code];
+
+        if (!weeksData) {
+          missingCodes++;
+          continue;
+        }
+
+        const avgWeek = computeAverageWeeklyHebdo(weeksData);
+        const baselinePeriod = avgWeek * periodWeeks;
+
+        if (baselinePeriod <= 0) {
+          const newWeek = periodQty / periodWeeks;
+          for (let w = 1; w <= 53; w++) {
+            weeksData[w] = newWeek;
+          }
+          updatedCount++;
+          continue;
+        }
+
+        let factor = periodQty / baselinePeriod;
+        if (!isFinite(factor) || factor <= 0) continue;
+
+        if (factor < 0.3) factor = 0.3;
+        if (factor > 3.0) factor = 3.0;
+
+        for (let w = 1; w <= 53; w++) {
+          const cur = weeksData[w] != null ? Number(weeksData[w]) : avgWeek;
+          weeksData[w] = cur * factor;
+        }
+        updatedCount++;
+      }
+
+      appendLog("[HEBDO] " + updatedCount + " code(s) mis à jour. " +
+                (missingCodes ? missingCodes + " code(s) non trouvés dans hebdo." : ""));
+      return updatedCount;
+    }
+
+    function generateNewHtmlFile() {
+      if (!baseHtmlText || !embeddedData || !salesAgg) {
+        setStatus("Il faut d'abord charger le HTML de base et le fichier de ventes.", false);
+        return;
+      }
+
+      setStatus("Application des ventes aux besoins hebdo…", true);
+      appendLog("=== Début de mise à jour des besoins hebdo ===");
+
+      const updatedCount = applySalesToHebdo();
+
+      const match = baseHtmlText.match(/const\s+EMBEDDED_DATA\s*=\s*(\{[\s\S]*?\});/);
+      if (!match) {
+        throw new Error("Impossible de retrouver EMBEDDED_DATA dans le HTML de base au moment de la réécriture.");
+      }
+      const oldJsonText = match[1];
+      const newJsonText = JSON.stringify(embeddedData);
+
+      const newHtml = baseHtmlText.replace(oldJsonText, newJsonText);
+      appendLog("[HTML] Bloc EMBEDDED_DATA mis à jour dans le HTML.");
+
+      const blob = new Blob([newHtml], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "coxx_outil_mis_a_jour.html";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setStatus("Nouveau fichier HTML généré avec succès (" + updatedCount + " article(s) mis à jour).", true);
+      appendLog("=== Fin – nouveau HTML généré ===");
+    }
+
+    generateBtn.addEventListener("click", () => {
+      try {
+        generateNewHtmlFile();
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || "Erreur lors de la génération du nouvel HTML.", false);
+        appendLog("[ERREUR] " + (err.message || String(err)));
+      }
+    });
+  </script>
+</body>
+</html>
