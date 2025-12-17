@@ -59,6 +59,13 @@
     <pre id="log"></pre>
   </div>
 
+  <div class="card" id="volumeAudit">
+    <label>Contrôle volumes (sécurité)</label>
+    <div id="volumeAuditSummary" class="muted">—</div>
+    <div id="volumeAuditTableWrap" style="overflow:auto;max-height:260px;border:1px solid #222;border-radius:12px;margin-top:8px;"></div>
+  </div>
+
+
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 const $ = (id)=>document.getElementById(id);
@@ -89,6 +96,40 @@ function parseVolumeL(fmt){
   if(unit==="ml") return val/1000;
   return null;
 }
+// --- VERROUILLAGE volumes (sécurité) ---
+// Déduit un volume unitaire (L) depuis le libellé/format, avec règles explicites (25/33/50/75cl).
+function lockedUnitLitersFromLabel(label, fallbackL){
+  const s = (label||"").toString().toLowerCase().replace(/\s+/g,"");
+  // règles explicites (anti-régression, ex: IPA 33cl => 0.33L)
+  if(/\b25cl\b/.test(s) || s.includes("25cl")) return 0.25;
+  if(/\b33cl\b/.test(s) || s.includes("33cl")) return 0.33;
+  if(/\b50cl\b/.test(s) || s.includes("50cl")) return 0.50;
+  if(/\b75cl\b/.test(s) || s.includes("75cl")) return 0.75;
+  // litres explicites déjà dans le texte (ex: 1.5L)
+  const v = parseVolumeL(label);
+  if(v!=null && !isNaN(v) && v>0) return v;
+  return (fallbackL!=null && !isNaN(fallbackL) && fallbackL>0) ? fallbackL : null;
+}
+function approxEq(a,b,eps=1e-6){ return a!=null && b!=null && Math.abs(a-b) <= eps; }
+function validateUnitLiters(products){
+  const issues = [];
+  for(const p of (products||[])){
+    const label = p.libelle || "";
+    const expected = lockedUnitLitersFromLabel(label, null);
+    if(expected==null) continue;
+    const actual = (p.unite_litre!=null) ? Number(p.unite_litre) : null;
+    if(actual==null || isNaN(actual)) {
+      issues.push({idx:p.idx, code:p.code_article, libelle:label, expected, actual:"(vide)"});
+      continue;
+    }
+    // Tolérance raisonnable
+    if(Math.abs(actual-expected) > 1e-6){
+      issues.push({idx:p.idx, code:p.code_article, libelle:label, expected, actual});
+    }
+  }
+  return issues;
+}
+
 function daysInMonth(year, month){ // month:1-12
   return new Date(year, month, 0).getDate();
 }
@@ -227,7 +268,34 @@ $("runBtn").addEventListener("click", async ()=>{
     const weeksInYear = isoWeeksInYear(year);
     log("Année:", year, "| Semaines ISO:", weeksInYear);
 
-    const {data:embedded, objText} = extractEmbeddedData(baseHtmlText);
+    
+    // Garde-fou: éviter de charger l'outil MAJ comme "HTML de base" (il faut charger le HTML STOCK)
+    const looksLikeUpdaterTool =
+      /Générer\s+le\s+HTML\s+mis\s+à\s+jour/i.test(baseHtmlText) ||
+      baseHtmlText.includes('id="zipInput"') ||
+      baseHtmlText.includes('ZIP Besoins') ||
+      baseHtmlText.includes('Année de projection');
+    if(looksLikeUpdaterTool){
+      throw new Error("Tu as chargé l'outil de mise à jour (MAJ) comme HTML de base. Il faut sélectionner le fichier HTML STOCK (outil stock) dans le champ 1).");
+    }
+
+const {data:embedded, objText} = extractEmbeddedData(baseHtmlText);
+    
+    // Normaliser formats/volumes (affichage) d'après le verrouillage (ex: 33cl => 0,33L)
+    try{ applyLockedFormats(embedded.products); }catch(e){}
+// Normalisation volumes (sécurité): applique les règles verrouillées 25/33/50/75cl → litres
+    try{
+      if(embedded && embedded.products && typeof lockedUnitLitersFromLabel==='function'){
+        for(const p of embedded.products){
+          const expected = lockedUnitLitersFromLabel(p.libelle||"", p.unite_litre);
+          if(expected!=null) p.unite_litre = expected;
+        }
+      }
+    }catch(e){}
+
+    // Contrôle volumes (sécurité): vérifie 25/33/50/75cl → litres dans le HTML stock
+    try{ renderVolumeAudit(embedded.products); }catch(e){}
+
     if(!embedded || !embedded.products || !embedded.hebdo) throw new Error("EMBEDDED_DATA incomplet (products/hebdo manquant).");
     log("Produits:", embedded.products.length, "| Hebdo:", Object.keys(embedded.hebdo).length);
     // Nettoyage sécurité : certaines versions d'index ont parfois un hebdo sous la clé "null"/"undefined"
@@ -494,6 +562,58 @@ log("Lignes annuel (Soft+Alcool):", annualByLabel.size);
     $("runStatus").textContent="Erreur ❌";
   }
 });
+
+
+// Force la cohérence "format_lib" (affichage) avec le verrouillage cl→L (ex: 33cl => 0,33L)
+function applyLockedFormats(products){
+  for(const p of (products||[])){
+    const label = p.libelle || "";
+    const expected = lockedUnitLitersFromLabel(label, p.unite_litre);
+    if(expected==null) continue;
+    // Normaliser le champ numérique
+    p.unite_litre = expected;
+    // Normaliser l'affichage si le libellé indique un format en cl/L
+    const s = label.toString().toLowerCase().replace(/\s+/g,"");
+    if(s.includes("25cl") || s.includes("33cl") || s.includes("50cl") || s.includes("75cl") || /\b\d+(?:[\.,]\d+)?l\b/i.test(label)){
+      const txt = (expected < 1 ? expected.toFixed(2) : String(expected)).replace(/\.00$/,"").replace(".",",") + "L";
+      p.format_lib = txt;
+    }
+  }
+}
+
+function renderVolumeAudit(products){
+  try{
+    const issues = validateUnitLiters(products||[]);
+    const sumEl = document.getElementById("volumeAuditSummary");
+    const wrap = document.getElementById("volumeAuditTableWrap");
+    if(sumEl) sumEl.textContent = issues.length ? ("⚠️ " + issues.length + " incohérence(s) détectée(s). Exemple attendu: 33cl = 0,33L") : "✅ Aucun écart détecté (25/33/50/75cl).";
+    if(!wrap) return;
+    if(!issues.length){ wrap.innerHTML = ""; return; }
+    const rows = issues.map(x=>`
+      <tr>
+        <td>${x.code ?? ""}</td>
+        <td>${(x.libelle||"").replace(/</g,"&lt;")}</td>
+        <td>${x.expected}</td>
+        <td>${x.actual}</td>
+      </tr>`).join("");
+    wrap.innerHTML = `
+      <table style="width:100%; border-collapse:collapse; font-size:.78rem;">
+        <thead style="position:sticky; top:0; background:#111; z-index:2;">
+          <tr>
+            <th style="text-align:left; padding:.32rem .3rem; border-bottom:1px solid #222; color:#aaa; font-size:.7rem;">Code</th>
+            <th style="text-align:left; padding:.32rem .3rem; border-bottom:1px solid #222; color:#aaa; font-size:.7rem;">Produit</th>
+            <th style="text-align:left; padding:.32rem .3rem; border-bottom:1px solid #222; color:#aaa; font-size:.7rem;">Attendu (L)</th>
+            <th style="text-align:left; padding:.32rem .3rem; border-bottom:1px solid #222; color:#aaa; font-size:.7rem;">Actuel (L)</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }catch(e){
+    const sumEl = document.getElementById("volumeAuditSummary");
+    if(sumEl) sumEl.textContent = "Erreur contrôle volumes: " + (e && e.message ? e.message : e);
+  }
+}
+
 </script>
 </body>
 </html>
